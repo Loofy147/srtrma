@@ -29,13 +29,15 @@ class SelfRegenerationLoop:
             return True
         return False
 
-    def trigger_closure_lemma(self, anomaly_description):
+    def trigger_closure_lemma(self, anomaly_description, metadata=None):
         """
         Synthesizes a new adapter based on the anomaly metadata.
         """
-        logger.info(f"Triggering Closure Lemma for: {anomaly_description}")
+        full_context = f"{anomaly_description} | Metadata: {metadata}" if metadata else anomaly_description
+        logger.info(f"Triggering Closure Lemma for: {full_context}")
+
         # Use Synthesis Engine to get a functional adapter
-        new_adapter = AdapterSynthesis.synthesize(anomaly_description)
+        new_adapter = AdapterSynthesis.synthesize(full_context)
         return new_adapter
 
     def hot_swap_adapter(self, target_layer, new_adapter):
