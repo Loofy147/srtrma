@@ -7,7 +7,7 @@ from srtr.layer3_dce.dce import DeterministicConstrainedExecution
 from srtr.utils.regeneration import SelfRegenerationLoop
 from srtr.utils.telemetry import SRTRTelemetry
 
-logger = logging.getLogger("SRTR")
+logger = logging.getLogger("SRTR.Engine")
 
 class SRTREngine:
     """
@@ -21,7 +21,7 @@ class SRTREngine:
         self.regeneration = SelfRegenerationLoop()
         self.telemetry = SRTRTelemetry()
 
-    def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[]):
+    def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None):
         """
         Executes one full SRTR cycle.
         """
@@ -31,7 +31,7 @@ class SRTREngine:
         # Telemetry & Anomaly Detection
         self.telemetry.compute_semantic_curvature(covariant_derivative)
         if self.regeneration.detect_anomaly(covariant_derivative):
-            new_adapter = self.regeneration.trigger_closure_lemma("Semantic drift detected")
+            new_adapter = self.regeneration.trigger_closure_lemma("Topological Anomaly detected in Layer 1")
             self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
 
         # --- Layer 2: Relational Meta-Controller ---
@@ -39,21 +39,29 @@ class SRTREngine:
         h_next, z_t = self.layer2(nodes, adj_matrix, edge_weights)
 
         # --- Layer 3: Deterministic Constrained Execution ---
-        z_t_np = z_t.detach().numpy()[0] # Batch size 1
+        z_t_np = z_t.detach().numpy()[0]
         new_state = self.layer3.compute_ou_process(current_state, z_t_np)
 
         # Track convergence
         self.telemetry.track_convergence(torch.tensor([new_state]), torch.tensor([self.layer3.mu_base]))
 
         # Execution
-        success = self.layer3.execute_api_payload(new_state, constraints)
+        result = self.layer3.execute_api_payload(new_state, constraints, api_client=api_client)
+
+        # Check if execution failure triggers regeneration (Phase 1 Chaos)
+        if not result["success"]:
+            logger.warning(f"Execution failed due to: {result['reason']}. Initiating Self-Regeneration.")
+            new_adapter = self.regeneration.trigger_closure_lemma(f"API Execution Failure: {result['reason']}")
+            self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
+            # Re-attempt with adapter
+            new_state = self.layer3.compute_ou_process(current_state, z_t_np)
+            result = self.layer3.execute_api_payload(new_state, constraints, api_client=api_client)
 
         self.telemetry.log_metrics()
 
-        return new_state, success
+        return new_state, result
 
 if __name__ == "__main__":
-    # Smoke test
     logging.basicConfig(level=logging.INFO)
     input_dim = 10
     hidden_dim = 16
@@ -64,5 +72,5 @@ if __name__ == "__main__":
     edge_weights = torch.rand(1, 5, 5)
 
     current_state = 0.5
-    new_state, success = engine.run_cycle(input_data, adj_matrix, edge_weights, current_state)
-    print(f"Cycle Complete. New State: {new_state:.4f}, Success: {success}")
+    new_state, result = engine.run_cycle(input_data, adj_matrix, edge_weights, current_state)
+    print(f"Cycle Complete. Success: {result['success']}")
