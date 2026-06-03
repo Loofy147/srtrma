@@ -24,6 +24,34 @@ def adapter(state):
         "method": "POST"
     }}
 """,
+    "rest_pagination_adapter": """
+def adapter(state):
+    # Blueprint for handling paginated REST requests
+    return {{
+        "payload": {{"state": state, "limit": 100}},
+        "pagination": {{"enabled": True, "next_key": "next_page_token"}},
+        "method": "GET"
+    }}
+""",
+    "websocket_stream_adapter": """
+def adapter(state):
+    # Blueprint for persistent WebSocket stream initialization
+    return {{
+        "protocol": "ws",
+        "payload": {{"action": "subscribe", "topic": "telemetry"}},
+        "stream_filter": state
+    }}
+""",
+    "webhook_listener_adapter": """
+def adapter(state):
+    # Blueprint for mapping incoming webhook payloads to internal state
+    return {{
+        "mode": "listener",
+        "endpoint": "/webhooks/alpha",
+        "expected_schema": {{"id": "str", "value": "float"}},
+        "filter_condition": state
+    }}
+""",
     "identity": """
 def adapter(x):
     return x
@@ -43,7 +71,21 @@ class AdapterSynthesis:
         template_key = "identity"
         context = {}
 
-        if any(k in desc for k in ["missing_field", "rename", "schema"]):
+        # Order of checks matters if descriptions overlap.
+        # Check for specific protocols first.
+        if "pagination" in desc or "page" in desc:
+            logger.info("Selected REST Pagination Template")
+            template_key = "rest_pagination_adapter"
+
+        elif "websocket" in desc or "stream" in desc or "ws" in desc:
+            logger.info("Selected WebSocket Stream Template")
+            template_key = "websocket_stream_adapter"
+
+        elif "webhook" in desc or "hook" in desc or "listener" in desc:
+            logger.info("Selected Webhook Listener Template")
+            template_key = "webhook_listener_adapter"
+
+        elif any(k in desc for k in ["missing_field", "rename", "schema"]):
             logger.info("Selected Schema Mapping Template")
             template_key = "schema_mapping"
 

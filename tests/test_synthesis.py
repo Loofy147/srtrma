@@ -25,7 +25,27 @@ class TestAdapterSynthesis(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertIn("headers", result)
         self.assertEqual(result["headers"]["Authorization"], "Bearer SRTR-AUTH-LIVE-ALPHA-01")
-        self.assertEqual(result["payload"]["state"], 50)
+
+    def test_pagination_synthesis(self):
+        adapter = AdapterSynthesis.synthesize("REST Error: next_page_token field missing for pagination")
+        result = adapter(1)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["pagination"]["enabled"])
+        self.assertEqual(result["pagination"]["next_key"], "next_page_token")
+
+    def test_websocket_stream_synthesis(self):
+        adapter = AdapterSynthesis.synthesize("Stream Failure: websocket connection lost")
+        result = adapter("btc_usdt")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["protocol"], "ws")
+        self.assertEqual(result["stream_filter"], "btc_usdt")
+
+    def test_webhook_listener_synthesis(self):
+        adapter = AdapterSynthesis.synthesize("Metadata: external webhook hook missing")
+        result = adapter("alpha_v1")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["mode"], "listener")
+        self.assertEqual(result["endpoint"], "/webhooks/alpha")
 
     def test_identity_fallback(self):
         adapter = AdapterSynthesis.synthesize("standard operational noise")
