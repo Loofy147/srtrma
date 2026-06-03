@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import asyncio
 from srtr.layer3_dce.monads import APIWrapper
 
 logger = logging.getLogger("SRTR.Layer3")
@@ -9,6 +10,7 @@ class DeterministicConstrainedExecution:
     Layer 3: Deterministic Constrained Execution (DCE)
     Implements exact, risk-bounded instructions via external APIs.
     Uses constrained Ornstein-Uhlenbeck (Mean Reversion).
+    Now supports asynchronous execution.
     """
     def __init__(self, theta_base, mu_base, sigma_base):
         self.theta_base = theta_base
@@ -43,9 +45,9 @@ class DeterministicConstrainedExecution:
 
         return {"state": target_state}
 
-    def execute_api_payload(self, payload, constraints, api_client=None):
+    async def execute_api_payload(self, payload, constraints, api_client=None):
         """
-        Deterministic interaction with external API.
+        Deterministic interaction with external API (Async).
         """
         logger.info(f"Executing payload: {payload}")
 
@@ -59,7 +61,13 @@ class DeterministicConstrainedExecution:
 
         if api_client:
             wrapper = APIWrapper(api_client)
-            _, error, logs = wrapper.safe_call(payload).unwrap()
+            monad = wrapper.safe_call(payload)
+
+            # If the bind returned a coroutine, await it
+            if asyncio.iscoroutine(monad):
+                monad = await monad
+
+            _, error, logs = monad.unwrap()
 
             if error:
                 logger.error(f"Execution Monad Error: {error}")
