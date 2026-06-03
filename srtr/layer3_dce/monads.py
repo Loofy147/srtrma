@@ -9,16 +9,17 @@ class ExecutionMonad:
     """
     Encapsulates an execution step with safety boundaries.
     Enforces timeouts, budget caps, and error propagation.
-    Now supports both synchronous and asynchronous operations.
+    Now supports integrity check hooks for State Parity.
     """
-    def __init__(self, value=None, error=None, logs=None):
+    def __init__(self, value=None, error=None, logs=None, integrity_hash=None):
         self.value = value
         self.error = error
         self.logs = logs or []
+        self.integrity_hash = integrity_hash
 
     @classmethod
-    def unit(cls, value):
-        return cls(value=value)
+    def unit(cls, value, integrity_hash=None):
+        return cls(value=value, integrity_hash=integrity_hash)
 
     def bind(self, func, timeout=5.0, budget_cost=0):
         """
@@ -49,7 +50,11 @@ class ExecutionMonad:
             if elapsed > timeout:
                 raise Exception(f"Execution timeout: {elapsed:.2f}s > {timeout}s")
 
-            return ExecutionMonad(value=result, logs=self.logs + [f"Success: {func.__name__}"])
+            return ExecutionMonad(
+                value=result,
+                logs=self.logs + [f"Success: {func.__name__}"],
+                integrity_hash=self.integrity_hash
+            )
         except Exception as e:
             logger.error(f"Monadic Execution Error (Sync): {str(e)}")
             return ExecutionMonad(error=str(e), logs=self.logs + [f"Error in {func.__name__}: {str(e)}"])
@@ -69,7 +74,11 @@ class ExecutionMonad:
             if isinstance(result, dict) and result.get("status") and result.get("status") != 200:
                 raise Exception(result.get("error") or f"API Error: {result.get('status')}")
 
-            return ExecutionMonad(value=result, logs=self.logs + [f"Success (Async): {func.__name__}"])
+            return ExecutionMonad(
+                value=result,
+                logs=self.logs + [f"Success (Async): {func.__name__}"],
+                integrity_hash=self.integrity_hash
+            )
         except Exception as e:
             logger.error(f"Monadic Execution Error (Async): {str(e)}")
             return ExecutionMonad(error=str(e), logs=self.logs + [f"Error in {func.__name__}: {str(e)}"])
@@ -84,8 +93,7 @@ class APIWrapper:
     def __init__(self, api_client):
         self.api_client = api_client
 
-    def safe_call(self, payload):
+    def safe_call(self, payload, integrity_hash=None):
         # Determine if api_client.call is async
         call_method = self.api_client.call
-        return ExecutionMonad.unit(payload).bind(call_method)
-
+        return ExecutionMonad.unit(payload, integrity_hash=integrity_hash).bind(call_method)

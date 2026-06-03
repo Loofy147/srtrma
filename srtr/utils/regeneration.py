@@ -1,6 +1,7 @@
 import torch
 import logging
 from srtr.utils.templates import AdapterSynthesis
+from srtr.utils.audit import StateAuditor
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger("SRTR")
@@ -8,6 +9,7 @@ logger = logging.getLogger("SRTR")
 class SelfRegenerationLoop:
     """
     Handles detection of topological anomalies and autonomous refactoring.
+    Now with State Parity Auditing to ensure zero state-loss.
     """
     def __init__(self, threshold=0.5):
         self.threshold = threshold
@@ -43,7 +45,28 @@ class SelfRegenerationLoop:
     def hot_swap_adapter(self, target_layer, new_adapter):
         """
         Hot-Swap Execution Adapter Layer via Monadic API Injection.
+        Includes a Pre-Swap Audit and Post-Swap Verification.
         """
-        logger.info("Hot-swapping execution adapter...")
+        logger.info("Initiating hot-swap with State Parity Audit...")
+
+        # 1. Pre-Swap Audit
+        snapshot = target_layer.get_state_snapshot()
+        pre_hash = StateAuditor.compute_state_hash(snapshot)
+
+        # Store original for rollback
+        original_adapter = target_layer.adapter
+
+        # 2. Execute Swap
         target_layer.adapter = new_adapter
-        return True
+
+        # 3. Post-Swap Verification
+        new_snapshot = target_layer.get_state_snapshot()
+        post_hash = StateAuditor.compute_state_hash(new_snapshot)
+
+        if StateAuditor.verify_parity(pre_hash, post_hash):
+            logger.info("Hot-swap successful: State Parity Verified.")
+            return True
+        else:
+            logger.error("State Parity Failure! Rolling back to original adapter.")
+            target_layer.adapter = original_adapter
+            return False

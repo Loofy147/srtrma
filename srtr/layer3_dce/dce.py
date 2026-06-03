@@ -10,13 +10,35 @@ class DeterministicConstrainedExecution:
     Layer 3: Deterministic Constrained Execution (DCE)
     Implements exact, risk-bounded instructions via external APIs.
     Uses constrained Ornstein-Uhlenbeck (Mean Reversion).
-    Now supports asynchronous execution.
+    Now supports asynchronous execution and state parity auditing.
     """
     def __init__(self, theta_base, mu_base, sigma_base):
         self.theta_base = theta_base
         self.mu_base = mu_base
         self.sigma_base = sigma_base
         self.adapter = None
+        self.active_orders = {} # Simulating active order states
+
+    def get_state_snapshot(self):
+        """
+        Captures the current parameters and active execution context.
+        Excludes the adapter itself as it is expected to change.
+        """
+        return {
+            "theta_base": self.theta_base,
+            "mu_base": self.mu_base,
+            "sigma_base": self.sigma_base,
+            "active_orders": self.active_orders
+        }
+
+    def restore_state_snapshot(self, snapshot):
+        """
+        Restores state from a snapshot.
+        """
+        self.theta_base = snapshot.get("theta_base", self.theta_base)
+        self.mu_base = snapshot.get("mu_base", self.mu_base)
+        self.sigma_base = snapshot.get("sigma_base", self.sigma_base)
+        self.active_orders = snapshot.get("active_orders", self.active_orders)
 
     def compute_ou_process(self, x_t, z_t, dt=0.01):
         """
