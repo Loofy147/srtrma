@@ -14,8 +14,8 @@ class LiveNetworkBridge:
     """
     def __init__(self, endpoint="https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"):
         self.endpoint = endpoint
-        self.jitter_range = (0.01, 0.2) # Default jitter in seconds
-        self.drop_rate = 0.05 # 5% default packet drop simulation
+        self.jitter_range = (0.005, 0.05) # Optimized for higher frequency
+        self.drop_rate = 0.02 # Reduced for cleaner alpha pilot data
 
     def set_simulation_params(self, jitter_range=None, drop_rate=None):
         if jitter_range:
@@ -50,8 +50,6 @@ class LiveNetworkBridge:
             response = requests.get(self.endpoint, timeout=5)
             response.raise_for_status()
             data = response.json()
-            # Extract a numerical value to map into the topological field
-            # Handling coingecko structure
             if "bitcoin" in data:
                 price = float(data["bitcoin"]["usd"])
             else:
