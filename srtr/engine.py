@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import logging
+import asyncio
 from srtr.layer1_tgp.tgp import TopologicalGaugePerception
 from srtr.layer2_rmc.rmc import RelationalMetaController
 from srtr.layer3_dce.dce import DeterministicConstrainedExecution
@@ -12,6 +13,7 @@ logger = logging.getLogger("SRTR.Engine")
 class SRTREngine:
     """
     Main Engine coordinating TGP, RMC, and DCE layers.
+    Now supports asynchronous operation cycles.
     """
     def __init__(self, input_dim, hidden_dim, node_dim, num_regimes=5):
         self.layer1 = TopologicalGaugePerception(input_dim, hidden_dim)
@@ -21,9 +23,9 @@ class SRTREngine:
         self.regeneration = SelfRegenerationLoop()
         self.telemetry = SRTRTelemetry()
 
-    def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None):
+    async def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None):
         """
-        Executes one full SRTR cycle.
+        Executes one full SRTR cycle (Async).
         """
         # --- Layer 1: Topological Gauge Perception ---
         psi, covariant_derivative = self.layer1(input_data)
@@ -49,7 +51,7 @@ class SRTREngine:
 
         # 3. Prepare and Execute Payload
         payload = self.layer3.prepare_payload(new_state)
-        result = self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
+        result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
 
         # Check if execution failure triggers regeneration (Layer 3)
         if not result["success"]:
@@ -59,7 +61,7 @@ class SRTREngine:
 
             # Re-attempt preparation with new adapter
             payload = self.layer3.prepare_payload(new_state)
-            result = self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
+            result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
 
         self.telemetry.log_metrics()
 
