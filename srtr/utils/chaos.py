@@ -1,5 +1,6 @@
 import random
 import logging
+import torch
 
 logger = logging.getLogger("SRTR.Chaos")
 
@@ -47,5 +48,3 @@ class ChaosGenerator:
         logger.info(f"Chaos: Injecting semantic drift (intensity={intensity})...")
         noise = torch.randn_like(input_data) * intensity
         return input_data + noise
-
-import torch # Ensure torch is available for ChaosGenerator

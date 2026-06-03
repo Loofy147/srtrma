@@ -1,5 +1,6 @@
 import torch
 import logging
+from srtr.utils.templates import AdapterSynthesis
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger("SRTR")
@@ -14,10 +15,7 @@ class SelfRegenerationLoop:
     def compute_cohomology_drift(self, covariant_derivative):
         """
         Simplified Cohomology check: Detects if the semantic field fails to close.
-        In a discrete field, we check for a 'logical void' by looking for
-        singularities or high divergence in the covariant derivative.
         """
-        # H^n check stub: if the mean divergence is high, we have a structural hole
         divergence = torch.abs(torch.mean(covariant_derivative))
         return divergence
 
@@ -33,14 +31,12 @@ class SelfRegenerationLoop:
 
     def trigger_closure_lemma(self, anomaly_description):
         """
-        Compute Delta System Divergence and generate refactoring instructions.
+        Synthesizes a new adapter based on the anomaly metadata.
         """
         logger.info(f"Triggering Closure Lemma for: {anomaly_description}")
-        # In the hot-swap implementation, we return a callable adapter
-        def adaptive_adapter(state):
-            logger.info("Using hot-swapped adaptive adapter logic.")
-            return state * 1.05 # Compensate for drift
-        return adaptive_adapter
+        # Use Synthesis Engine to get a functional adapter
+        new_adapter = AdapterSynthesis.synthesize(anomaly_description)
+        return new_adapter
 
     def hot_swap_adapter(self, target_layer, new_adapter):
         """
