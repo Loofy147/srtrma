@@ -13,7 +13,7 @@ logger = logging.getLogger("SRTR.Engine")
 class SRTREngine:
     """
     Main Engine coordinating TGP, RMC, and DCE layers.
-    Now supports asynchronous operation cycles.
+    Optimized for Stream-Native execution and State Parity Auditing.
     """
     def __init__(self, input_dim, hidden_dim, node_dim, num_regimes=5):
         self.layer1 = TopologicalGaugePerception(input_dim, hidden_dim)
@@ -26,14 +26,22 @@ class SRTREngine:
     async def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None):
         """
         Executes one full SRTR cycle (Async).
+        Now includes automated State Parity Auditing during hot-swaps.
         """
         # --- Layer 1: Topological Gauge Perception ---
+        # psi: (batch, seq, hidden), covariant_derivative: (batch, seq, hidden)
         psi, covariant_derivative = self.layer1(input_data)
 
         # Anomaly Detection (Layer 1)
+        # If structural reality shifts (high curvature), trigger hot-swap with parity check
         if self.regeneration.detect_anomaly(covariant_derivative):
-            new_adapter = self.regeneration.trigger_closure_lemma("Topological Anomaly (high curvature)")
-            self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
+            anomaly_desc = f"Topological Anomaly (Curvature: {torch.abs(torch.mean(covariant_derivative)).item():.2e})"
+            new_adapter = self.regeneration.trigger_closure_lemma(anomaly_desc)
+
+            # The hot_swap_adapter method in regeneration.py handles the SHA-256 audit internally
+            swap_success = self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
+            if not swap_success:
+                logger.error("State Parity Audit failed during Layer 1 hot-swap! Cycle execution might be compromised.")
 
         # --- Layer 2: Relational Meta-Controller ---
         nodes = psi
@@ -47,16 +55,21 @@ class SRTREngine:
 
         # 2. Track metrics (always scalar state)
         self.telemetry.compute_semantic_curvature(covariant_derivative)
-        self.telemetry.track_convergence(torch.tensor([new_state]), torch.tensor([self.layer3.mu_base]))
+        self.telemetry.track_convergence(torch.tensor([new_state], dtype=torch.float32), torch.tensor([self.layer3.mu_base], dtype=torch.float32))
 
         # 3. Prepare and Execute Payload
         payload = self.layer3.prepare_payload(new_state)
+
+        # execute_api_payload handles idempotency hashing and integrity checks
         result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
 
         # Check if execution failure triggers regeneration (Layer 3)
-        if not result["success"]:
+        if not result["success"] and result.get("reason") != "idempotency_hit":
             logger.warning(f"Execution failed: {result['reason']}. Initiating Self-Regeneration.")
-            new_adapter = self.regeneration.trigger_closure_lemma(f"API Execution Failure: {result['reason']}")
+            anomaly_desc = f"API Execution Failure: {result['reason']}"
+            new_adapter = self.regeneration.trigger_closure_lemma(anomaly_desc)
+
+            # Hot-swap with State Parity Audit
             self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
 
             # Re-attempt preparation with new adapter
