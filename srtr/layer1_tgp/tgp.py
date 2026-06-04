@@ -43,3 +43,20 @@ class TopologicalGaugePerception(nn.Module):
         covariant_derivative = psi_diff - self.g * interaction
 
         return psi, covariant_derivative
+
+    def ingest_stream_chunk(self, history, window_size=5):
+        """
+        Helper to prepare streaming data chunks for the forward pass.
+        Ensures a sliding window of recent telemetry and applies normalization.
+        """
+        if len(history) < window_size:
+            padding = [history[0]] * (window_size - len(history))
+            history = padding + history
+
+        chunk = history[-window_size:]
+
+        # Normalization: Map prices to relative changes (drift-invariant)
+        base = chunk[0] if chunk[0] != 0 else 1.0
+        normalized = [(h - base) / base for h in chunk]
+
+        return torch.tensor([[ [h] for h in normalized ]], dtype=torch.float32)

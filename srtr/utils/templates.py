@@ -1,5 +1,10 @@
 import logging
 import ast
+import hashlib
+import hmac
+import time
+import json
+import os
 
 logger = logging.getLogger("SRTR.Templates")
 
@@ -22,6 +27,53 @@ def adapter(state):
         "payload": {{"state": state}},
         "headers": {{"Authorization": "Bearer {token}"}},
         "method": "POST"
+    }}
+""",
+    "hmac_signed_adapter": """
+import hmac
+import hashlib
+import json
+import time
+import os
+
+def adapter(state):
+    # Blueprint for HMAC-signed payloads (Live Exchange Egress)
+    secret = os.environ.get("SRTR_API_SECRET", "DEMO_SECRET")
+    api_key = os.environ.get("SRTR_API_KEY", "DEMO_KEY")
+
+    payload = {{"state": state, "timestamp": int(time.time() * 1000)}}
+    payload_str = json.dumps(payload, sort_keys=True)
+
+    signature = hmac.new(
+        secret.encode('utf-8'),
+        payload_str.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+    return {{
+        "payload": payload,
+        "headers": {{
+            "X-SRTR-API-KEY": api_key,
+            "X-SRTR-SIGNATURE": signature
+        }},
+        "method": "POST"
+    }}
+""",
+    "oauth2_authorized_adapter": """
+import os
+
+def adapter(state):
+    # Blueprint for OAuth2 authorized enterprise workflows
+    return {{
+        "payload": {{"data": state}},
+        "auth": {{
+            "type": "oauth2",
+            "token_url": "{token_url}",
+            "scope": "{scope}",
+            "client_id": os.environ.get("SRTR_OAUTH_CLIENT_ID"),
+            "client_secret": os.environ.get("SRTR_OAUTH_CLIENT_SECRET")
+        }},
+        "method": "PATCH"
     }}
 """,
     "rest_pagination_adapter": """
@@ -94,7 +146,20 @@ class AdapterSynthesis:
             template_key = "scaling_compensation"
             context = {"factor": 1.1}
 
-        elif any(k in desc for k in ["auth", "unauthorized", "token"]):
+        elif any(k in desc for k in ["signature", "hmac", "sign"]):
+            logger.info("Selected HMAC Signed Template")
+            template_key = "hmac_signed_adapter"
+            # Secrets now loaded via os.environ inside the template
+
+        elif any(k in desc for k in ["oauth2", "authorize_enterprise"]):
+            logger.info("Selected OAuth2 Template")
+            template_key = "oauth2_authorized_adapter"
+            context = {
+                "token_url": "https://auth.contacto.dz/token",
+                "scope": "alpha.pilot.execute"
+            }
+
+        elif any(k in desc for k in ["oauth", "bearer", "token", "auth", "unauthorized"]):
             logger.info("Selected REST Auth Template")
             template_key = "rest_auth_adapter"
             context = {"token": "SRTR-AUTH-LIVE-ALPHA-01"}
@@ -113,8 +178,10 @@ class AdapterSynthesis:
             # Parse to ensure it's a valid AST
             ast.parse(hydrated_code)
 
+            # We need to make sure the adapter has access to the modules it needs
+            # The template itself should contain the imports
             local_vars = {}
-            exec(hydrated_code, {}, local_vars)
+            exec(hydrated_code, globals(), local_vars)
             adapter_func = local_vars.get("adapter")
 
             if not adapter_func:

@@ -13,7 +13,7 @@ logger = logging.getLogger("SRTR.Engine")
 class SRTREngine:
     """
     Main Engine coordinating TGP, RMC, and DCE layers.
-    Now supports asynchronous operation cycles.
+    Optimized for Stream-Native execution and State Parity Auditing.
     """
     def __init__(self, input_dim, hidden_dim, node_dim, num_regimes=5):
         self.layer1 = TopologicalGaugePerception(input_dim, hidden_dim)
@@ -23,17 +23,22 @@ class SRTREngine:
         self.regeneration = SelfRegenerationLoop()
         self.telemetry = SRTRTelemetry()
 
-    async def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None):
+    async def run_cycle(self, input_data, adj_matrix, edge_weights, current_state, constraints=[], api_client=None, cycle_nonce=None):
         """
         Executes one full SRTR cycle (Async).
+        Now includes automated State Parity Auditing and intent-based idempotency.
         """
         # --- Layer 1: Topological Gauge Perception ---
         psi, covariant_derivative = self.layer1(input_data)
 
         # Anomaly Detection (Layer 1)
         if self.regeneration.detect_anomaly(covariant_derivative):
-            new_adapter = self.regeneration.trigger_closure_lemma("Topological Anomaly (high curvature)")
-            self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
+            anomaly_desc = f"Topological Anomaly (Curvature: {torch.abs(torch.mean(covariant_derivative)).item():.2e})"
+            new_adapter = self.regeneration.trigger_closure_lemma(anomaly_desc)
+
+            swap_success = self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
+            if not swap_success:
+                logger.error("State Parity Audit failed during Layer 1 hot-swap!")
 
         # --- Layer 2: Relational Meta-Controller ---
         nodes = psi
@@ -45,23 +50,27 @@ class SRTREngine:
         # 1. Compute mathematical next state
         new_state = self.layer3.compute_ou_process(current_state, z_t_np)
 
-        # 2. Track metrics (always scalar state)
+        # 2. Track metrics
         self.telemetry.compute_semantic_curvature(covariant_derivative)
-        self.telemetry.track_convergence(torch.tensor([new_state]), torch.tensor([self.layer3.mu_base]))
+        self.telemetry.track_convergence(torch.tensor([new_state], dtype=torch.float32), torch.tensor([self.layer3.mu_base], dtype=torch.float32))
 
         # 3. Prepare and Execute Payload
         payload = self.layer3.prepare_payload(new_state)
-        result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
+
+        # We use cycle_nonce to help the DCE layer distinguish between different cycles with same price
+        result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client, intent_nonce=cycle_nonce)
 
         # Check if execution failure triggers regeneration (Layer 3)
-        if not result["success"]:
+        if not result["success"] and result.get("reason") != "idempotency_hit":
             logger.warning(f"Execution failed: {result['reason']}. Initiating Self-Regeneration.")
-            new_adapter = self.regeneration.trigger_closure_lemma(f"API Execution Failure: {result['reason']}")
+            anomaly_desc = f"API Execution Failure: {result['reason']}"
+            new_adapter = self.regeneration.trigger_closure_lemma(anomaly_desc)
+
             self.regeneration.hot_swap_adapter(self.layer3, new_adapter)
 
             # Re-attempt preparation with new adapter
             payload = self.layer3.prepare_payload(new_state)
-            result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client)
+            result = await self.layer3.execute_api_payload(payload, constraints, api_client=api_client, intent_nonce=cycle_nonce)
 
         self.telemetry.log_metrics()
 
