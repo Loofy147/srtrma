@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import time
 import json
+import os
 
 logger = logging.getLogger("SRTR.Templates")
 
@@ -33,11 +34,12 @@ import hmac
 import hashlib
 import json
 import time
+import os
 
 def adapter(state):
     # Blueprint for HMAC-signed payloads (Live Exchange Egress)
-    secret = "{secret}"
-    api_key = "{api_key}"
+    secret = os.environ.get("SRTR_API_SECRET", "DEMO_SECRET")
+    api_key = os.environ.get("SRTR_API_KEY", "DEMO_KEY")
 
     payload = {{"state": state, "timestamp": int(time.time() * 1000)}}
     payload_str = json.dumps(payload, sort_keys=True)
@@ -58,11 +60,19 @@ def adapter(state):
     }}
 """,
     "oauth2_authorized_adapter": """
+import os
+
 def adapter(state):
     # Blueprint for OAuth2 authorized enterprise workflows
     return {{
         "payload": {{"data": state}},
-        "auth": {{"type": "oauth2", "token_url": "{token_url}", "scope": "{scope}"}},
+        "auth": {{
+            "type": "oauth2",
+            "token_url": "{token_url}",
+            "scope": "{scope}",
+            "client_id": os.environ.get("SRTR_OAUTH_CLIENT_ID"),
+            "client_secret": os.environ.get("SRTR_OAUTH_CLIENT_SECRET")
+        }},
         "method": "PATCH"
     }}
 """,
@@ -139,10 +149,7 @@ class AdapterSynthesis:
         elif any(k in desc for k in ["signature", "hmac", "sign"]):
             logger.info("Selected HMAC Signed Template")
             template_key = "hmac_signed_adapter"
-            context = {
-                "secret": "SRTR-SECRET-ALPHA-99",
-                "api_key": "SRTR-KEY-PROD-001"
-            }
+            # Secrets now loaded via os.environ inside the template
 
         elif any(k in desc for k in ["oauth2", "authorize_enterprise"]):
             logger.info("Selected OAuth2 Template")

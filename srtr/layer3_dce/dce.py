@@ -11,7 +11,7 @@ class DeterministicConstrainedExecution:
     Layer 3: Deterministic Constrained Execution (DCE)
     Implements exact, risk-bounded instructions via external APIs.
     Uses constrained Ornstein-Uhlenbeck (Mean Reversion).
-    Now supports asynchronous execution, state parity auditing, and egress idempotency.
+    Now supports asynchronous execution, state parity auditing, and intent-based idempotency.
     """
     def __init__(self, theta_base, mu_base, sigma_base):
         self.theta_base = theta_base
@@ -19,7 +19,7 @@ class DeterministicConstrainedExecution:
         self.sigma_base = sigma_base
         self.adapter = None
         self.active_orders = {} # Simulating active order states
-        self.executed_payloads = set() # Idempotency log
+        self.executed_intents = set() # Idempotency log for logical state intent
 
     def get_state_snapshot(self):
         """
@@ -31,7 +31,7 @@ class DeterministicConstrainedExecution:
             "mu_base": self.mu_base,
             "sigma_base": self.sigma_base,
             "active_orders": self.active_orders,
-            "idempotency_keys": list(self.executed_payloads)
+            "idempotency_keys": list(self.executed_intents)
         }
 
     def restore_state_snapshot(self, snapshot):
@@ -42,7 +42,7 @@ class DeterministicConstrainedExecution:
         self.mu_base = snapshot.get("mu_base", self.mu_base)
         self.sigma_base = snapshot.get("sigma_base", self.sigma_base)
         self.active_orders = snapshot.get("active_orders", self.active_orders)
-        self.executed_payloads = set(snapshot.get("idempotency_keys", []))
+        self.executed_intents = set(snapshot.get("idempotency_keys", []))
 
     def compute_ou_process(self, x_t, z_t, dt=0.01):
         """
@@ -71,30 +71,38 @@ class DeterministicConstrainedExecution:
 
         return {"state": target_state}
 
-    async def execute_api_payload(self, payload, constraints, api_client=None):
+    async def execute_api_payload(self, payload, constraints, api_client=None, intent_nonce=None):
         """
         Deterministic interaction with external API (Async).
-        Enforces idempotency via state auditing.
+        Enforces intent-based idempotency via state auditing.
         """
         logger.info(f"Executing payload: {payload}")
 
-        # Idempotency Check: prevent duplicate dispatches
-        payload_hash = StateAuditor.compute_state_hash(payload)
-        if payload_hash in self.executed_payloads:
-            logger.warning("Duplicate payload detected! Skipping dispatch.")
+        # Intent-based Idempotency Check:
+        # We hash the logical target state (intent) rather than the transmission payload
+        # to ensure retries with new timestamps/signatures are blocked if the intent is same.
+        logical_intent = {"target": payload.get("state") or payload.get("payload", {}).get("state")}
+        if intent_nonce:
+            logical_intent["nonce"] = intent_nonce
+
+        intent_hash = StateAuditor.compute_state_hash(logical_intent)
+
+        if intent_hash in self.executed_intents:
+            logger.warning(f"Duplicate intent detected! ({intent_hash}). Skipping dispatch.")
             return {"success": True, "reason": "idempotency_hit"}
 
-        # Boundary Check for scalar target_state if present in payload
-        if "state" in payload:
-            target_state = payload["state"]
+        # Boundary Check: locate state even in nested payloads
+        target_state = logical_intent["target"]
+        if target_state is not None:
             for c in constraints:
                 if not c(target_state):
-                    logger.error("Constraint violation!")
+                    logger.error(f"Constraint violation for state {target_state}!")
                     return {"success": False, "reason": "constraint_violation"}
 
         if api_client:
+            # We pass the intent_hash as the integrity token
             wrapper = APIWrapper(api_client)
-            monad = wrapper.safe_call(payload, integrity_hash=payload_hash)
+            monad = wrapper.safe_call(payload, integrity_hash=intent_hash)
 
             # If the bind returned a coroutine, await it
             if asyncio.iscoroutine(monad):
@@ -107,7 +115,7 @@ class DeterministicConstrainedExecution:
                 return {"success": False, "reason": error}
 
             # Record success for idempotency
-            self.executed_payloads.add(payload_hash)
+            self.executed_intents.add(intent_hash)
 
         logger.info("API Call Successful.")
         return {"success": True}
