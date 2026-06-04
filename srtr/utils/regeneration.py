@@ -24,8 +24,10 @@ class SelfRegenerationLoop:
     def detect_anomaly(self, covariant_derivative):
         """
         Anomaly Detection: When Layer 1 registers a non-trivial cohomology class.
+        Uses a production-hardened threshold calibrated for Vector Alpha.
         """
         drift = self.compute_cohomology_drift(covariant_derivative)
+        # Production Threshold: Scaled to ignore standard network jitter
         if drift > self.threshold:
             logger.warning(f"Topological Anomaly Detected (Cohomology Drift)! Drift: {drift.item():.4f}")
             return True
