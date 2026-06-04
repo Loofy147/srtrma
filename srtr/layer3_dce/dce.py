@@ -81,7 +81,7 @@ class DeterministicConstrainedExecution:
         # Intent-based Idempotency Check:
         # We hash the logical target state (intent) rather than the transmission payload
         # to ensure retries with new timestamps/signatures are blocked if the intent is same.
-        logical_intent = {"target": payload.get("state") or payload.get("payload", {}).get("state")}
+        logical_intent = {"target": payload.get("state") or payload.get("payload", {}).get("state") or payload.get("data") or payload.get("payload", {}).get("data")}
         if intent_nonce:
             logical_intent["nonce"] = intent_nonce
 
