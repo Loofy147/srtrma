@@ -2,6 +2,7 @@ import numpy as np
 import logging
 import asyncio
 from srtr.layer3_dce.monads import APIWrapper
+from srtr.utils.audit import StateAuditor
 
 logger = logging.getLogger("SRTR.Layer3")
 
@@ -10,7 +11,7 @@ class DeterministicConstrainedExecution:
     Layer 3: Deterministic Constrained Execution (DCE)
     Implements exact, risk-bounded instructions via external APIs.
     Uses constrained Ornstein-Uhlenbeck (Mean Reversion).
-    Now supports asynchronous execution and state parity auditing.
+    Now supports asynchronous execution, state parity auditing, and egress idempotency.
     """
     def __init__(self, theta_base, mu_base, sigma_base):
         self.theta_base = theta_base
@@ -18,6 +19,7 @@ class DeterministicConstrainedExecution:
         self.sigma_base = sigma_base
         self.adapter = None
         self.active_orders = {} # Simulating active order states
+        self.executed_payloads = set() # Idempotency log
 
     def get_state_snapshot(self):
         """
@@ -28,7 +30,8 @@ class DeterministicConstrainedExecution:
             "theta_base": self.theta_base,
             "mu_base": self.mu_base,
             "sigma_base": self.sigma_base,
-            "active_orders": self.active_orders
+            "active_orders": self.active_orders,
+            "idempotency_keys": list(self.executed_payloads)
         }
 
     def restore_state_snapshot(self, snapshot):
@@ -39,6 +42,7 @@ class DeterministicConstrainedExecution:
         self.mu_base = snapshot.get("mu_base", self.mu_base)
         self.sigma_base = snapshot.get("sigma_base", self.sigma_base)
         self.active_orders = snapshot.get("active_orders", self.active_orders)
+        self.executed_payloads = set(snapshot.get("idempotency_keys", []))
 
     def compute_ou_process(self, x_t, z_t, dt=0.01):
         """
@@ -70,8 +74,15 @@ class DeterministicConstrainedExecution:
     async def execute_api_payload(self, payload, constraints, api_client=None):
         """
         Deterministic interaction with external API (Async).
+        Enforces idempotency via state auditing.
         """
         logger.info(f"Executing payload: {payload}")
+
+        # Idempotency Check: prevent duplicate dispatches
+        payload_hash = StateAuditor.compute_state_hash(payload)
+        if payload_hash in self.executed_payloads:
+            logger.warning("Duplicate payload detected! Skipping dispatch.")
+            return {"success": True, "reason": "idempotency_hit"}
 
         # Boundary Check for scalar target_state if present in payload
         if "state" in payload:
@@ -83,7 +94,7 @@ class DeterministicConstrainedExecution:
 
         if api_client:
             wrapper = APIWrapper(api_client)
-            monad = wrapper.safe_call(payload)
+            monad = wrapper.safe_call(payload, integrity_hash=payload_hash)
 
             # If the bind returned a coroutine, await it
             if asyncio.iscoroutine(monad):
@@ -94,6 +105,9 @@ class DeterministicConstrainedExecution:
             if error:
                 logger.error(f"Execution Monad Error: {error}")
                 return {"success": False, "reason": error}
+
+            # Record success for idempotency
+            self.executed_payloads.add(payload_hash)
 
         logger.info("API Call Successful.")
         return {"success": True}
