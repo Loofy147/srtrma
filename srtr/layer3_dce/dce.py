@@ -1,3 +1,5 @@
+import hashlib
+import json
 import numpy as np
 import logging
 import asyncio
@@ -81,18 +83,26 @@ class DeterministicConstrainedExecution:
         # Intent-based Idempotency Check:
         # We hash the logical target state (intent) rather than the transmission payload
         # to ensure retries with new timestamps/signatures are blocked if the intent is same.
-        logical_intent = {"target": payload.get("state") or payload.get("payload", {}).get("state") or payload.get("data") or payload.get("payload", {}).get("data")}
-        if intent_nonce:
-            logical_intent["nonce"] = intent_nonce
+        target = payload.get("state") or payload.get("payload", {}).get("state") or payload.get("data") or payload.get("payload", {}).get("data")
 
-        intent_hash = StateAuditor.compute_state_hash(logical_intent)
+        # DCE only cares about the mathematical target, not the adapter-wrapped payload
+                # DCE only cares about the logical intent identity.
+        # If a nonce is provided, it IS the identity. Otherwise we fall back to the target state.
+        if intent_nonce:
+            logical_intent = {"nonce": intent_nonce}
+        else:
+            logical_intent = {"target": target}
+
+                # STABILITY FIX: ensure stable serialization for logical intent
+        logical_intent_json = json.dumps(logical_intent, sort_keys=True, default=lambda x: x.item() if hasattr(x, "item") else str(x))
+        intent_hash = hashlib.sha256(logical_intent_json.encode('utf-8')).hexdigest()
 
         if intent_hash in self.executed_intents:
             logger.warning(f"Duplicate intent detected! ({intent_hash}). Skipping dispatch.")
             return {"success": True, "reason": "idempotency_hit"}
 
-        # Boundary Check: locate state even in nested payloads
-        target_state = logical_intent["target"]
+                # Boundary Check: locate state even in nested payloads
+        target_state = target
         if target_state is not None:
             for c in constraints:
                 if not c(target_state):
@@ -114,8 +124,8 @@ class DeterministicConstrainedExecution:
                 logger.error(f"Execution Monad Error: {error}")
                 return {"success": False, "reason": error}
 
-            # Record success for idempotency
-            self.executed_intents.add(intent_hash)
+        # Record success for idempotency
+        self.executed_intents.add(intent_hash)
 
         logger.info("API Call Successful.")
         return {"success": True}
